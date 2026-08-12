@@ -364,6 +364,25 @@ def layhoadon(userevn, year):
     return rows
 
 
+def layhoadon_tatca(userevn):
+    """Lấy hóa đơn tất cả các năm cho userevn, kèm năm.
+
+    Trả list tuple (thang, nam, tien_dien, san_luong_kwh) để WebUI hiện được
+    lịch sử nhiều năm thay vì chỉ năm hiện tại.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT thang, nam, tien_dien, san_luong_kwh FROM monthly_bill "
+        "WHERE userevn=? ORDER BY nam ASC, thang ASC",
+        (userevn,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    _LOGGER.debug(f"layhoadon_tatca({userevn}) => {len(rows)} dòng")
+    return rows
+
+
 def laylichcatdien(userevn):
     """Lấy lịch cắt điện từ database"""
     try:

@@ -170,31 +170,35 @@ class EVNMonthlyDataView(HomeAssistantView):
         """Get monthly data for account."""
         try:
             # Get data from database using utils
-            from .utils import layhoadon
-            
-            # Get bills for current year
-            current_year = datetime.now().year
-            bills = layhoadon(account, current_year)
-            
+            from .utils import layhoadon_tatca
+
+            # Lấy hóa đơn TẤT CẢ các năm (không chốt năm hiện tại) để xem dữ liệu cũ
+            bills = layhoadon_tatca(account)
+
             # Format data for webui
-            # layhoadon returns list of tuples: (thang, tien_dien, san_luong_kwh)
+            # layhoadon_tatca trả tuple: (thang, nam, tien_dien, san_luong_kwh)
             # WebUI expects format: SanLuong and TienDien are arrays of objects with {Tháng, Năm, ...}
             monthly_data = {
                 "SanLuong": [],
                 "TienDien": []
             }
-            
+
             for bill in bills:
                 try:
                     thang = bill[0] if isinstance(bill, tuple) else bill.get("thang", 0)
-                    tien_dien = bill[1] if isinstance(bill, tuple) else bill.get("tien_dien", 0)
-                    san_luong = bill[2] if isinstance(bill, tuple) else bill.get("san_luong_kwh", 0)
-                    
+                    nam = bill[1] if isinstance(bill, tuple) else bill.get("nam", 0)
+                    tien_dien = bill[2] if isinstance(bill, tuple) else bill.get("tien_dien", 0)
+                    san_luong = bill[3] if isinstance(bill, tuple) else bill.get("san_luong_kwh", 0)
+
                     # Safely convert to int/float
                     try:
                         thang_int = int(thang) if thang is not None else 0
                     except (ValueError, TypeError):
                         thang_int = 0
+                    try:
+                        nam_int = int(nam) if nam is not None else 0
+                    except (ValueError, TypeError):
+                        nam_int = 0
                     try:
                         tien_dien_float = float(tien_dien) if tien_dien is not None else 0
                     except (ValueError, TypeError):
@@ -203,15 +207,15 @@ class EVNMonthlyDataView(HomeAssistantView):
                         san_luong_float = float(san_luong) if san_luong is not None else 0
                     except (ValueError, TypeError):
                         san_luong_float = 0
-                    
+
                     monthly_data["SanLuong"].append({
                         "Tháng": thang_int,
-                        "Năm": current_year,
+                        "Năm": nam_int,
                         "Điện tiêu thụ (KWh)": san_luong_float
                     })
                     monthly_data["TienDien"].append({
                         "Tháng": thang_int,
-                        "Năm": current_year,
+                        "Năm": nam_int,
                         "Tiền Điện": tien_dien_float
                     })
                 except Exception as bill_ex:
@@ -245,11 +249,11 @@ class EVNDailyDataView(HomeAssistantView):
         try:
             # Get data from database using utils
             from .utils import laykhoangtieuthukynay
-            from datetime import timedelta
-            
-            # Get data from last year to today
+
+            # Lấy TOÀN BỘ lịch sử (không chốt 365 ngày) để xem được dữ liệu cũ.
+            # Database chỉ có từ khi EVN bắt đầu ghi nên mốc 2020 là đủ rộng.
             today = datetime.now()
-            start_date = today - timedelta(days=365)
+            start_date = datetime(2020, 1, 1)
             
             # laykhoangtieuthukynay expects format dd/mm/yyyy and converts to dd-mm-yyyy
             # So we pass dd/mm/yyyy format
