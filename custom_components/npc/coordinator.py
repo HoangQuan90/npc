@@ -9,7 +9,7 @@ import os
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from .npc_api import EVNAPI
-from .const import SCAN_INTERVAL, DB_PATH, DOMAIN
+from .const import SCAN_INTERVAL, REFRESH_WINDOW_DAYS, DB_PATH, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,11 +49,22 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
             today = datetime.now()
             start_date = datetime(2025, 1, 1)
             batch_days = 15
-            
+
+            # Chỉ tải lại cửa sổ gần đây: chỉ số các ngày đã qua không đổi nữa.
+            # Database còn rỗng thì mới tải toàn bộ lịch sử.
+            last_saved = self._get_last_saved_date()
+            if last_saved:
+                fetch_start = max(
+                    last_saved - timedelta(days=REFRESH_WINDOW_DAYS), start_date
+                )
+            else:
+                fetch_start = start_date
+                _LOGGER.info(f"Chưa có dữ liệu, tải toàn bộ lịch sử từ {start_date:%d/%m/%Y}")
+
             # Calculate all batches
             all_daily_data = []
-            current_start = start_date
-            
+            current_start = fetch_start
+
             while current_start < today:
                 current_end = min(current_start + timedelta(days=batch_days - 1), today)
                 from_date_str = current_start.strftime("%d/%m/%Y")
@@ -72,6 +83,7 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
             # Save all daily data
             if all_daily_data:
                 await self._save_daily_data(all_daily_data)
+                await self._save_monthly_consumption_from_daily()
                 _LOGGER.info(f"Saved total {len(all_daily_data)} daily records")
 
             # Fetch monthly data for current and previous months
@@ -95,8 +107,10 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
                 await self._save_monthly_data(prev_monthly_data["data"], prev_month, prev_year)
 
             # Fetch bill data (hóa đơn)
+            # Danh sách rỗng nghĩa là không nợ tiền, vẫn phải ghi để sensor
+            # tiền nợ có bảng mà đọc.
             bill_data = await self.api.get_hoadon()
-            if bill_data and bill_data.get("data"):
+            if bill_data is not None and isinstance(bill_data.get("data"), list):
                 await self._save_bill_data(bill_data["data"])
                 # Also save to monthly_bill table
                 await self._save_hoadon_to_monthly_bill(bill_data["data"])
@@ -116,6 +130,27 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
 
         except Exception as err:
             raise UpdateFailed(f"Error updating EVN data: {err}") from err
+
+    def _get_last_saved_date(self) -> Optional[datetime]:
+        """Ngày mới nhất đã lưu trong database, None nếu chưa có dữ liệu."""
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            # ngay lưu dạng dd-mm-yyyy nên phải sắp xếp theo năm/tháng/ngày
+            cursor.execute("""
+                SELECT ngay FROM daily_consumption WHERE userevn = ?
+                ORDER BY substr(ngay, 7, 4) DESC,
+                         substr(ngay, 4, 2) DESC,
+                         substr(ngay, 1, 2) DESC
+                LIMIT 1
+            """, (self.customer_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if row and row[0]:
+                return datetime.strptime(row[0], "%d-%m-%Y")
+        except Exception as e:
+            _LOGGER.debug(f"Chưa đọc được ngày cuối trong database: {e}")
+        return None
 
     async def _save_daily_data(self, data: list):
         """Save daily consumption data to database."""
@@ -215,10 +250,20 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
                         f"From API: {record.get('DIEN_TIEU_THU') or record.get('Tong')}"
                     )
 
+                # COALESCE: không ghi đè giá trị đã có bằng NULL. Cần thiết vì
+                # ngày đầu mỗi cửa sổ làm mới không có ngày liền trước để tính
+                # sản lượng (NPC/HN/CPC chỉ trả chỉ số), và vì bản ghi gộp
+                # nhiều ngày của SPC không có chỉ số chốt.
                 cursor.execute("""
-                    INSERT OR REPLACE INTO daily_consumption 
+                    INSERT INTO daily_consumption
                     (userevn, ngay, chi_so, dien_tieu_thu_kwh)
                     VALUES (?, ?, ?, ?)
+                    ON CONFLICT(userevn, ngay) DO UPDATE SET
+                        chi_so = COALESCE(excluded.chi_so, daily_consumption.chi_so),
+                        dien_tieu_thu_kwh = COALESCE(
+                            excluded.dien_tieu_thu_kwh,
+                            daily_consumption.dien_tieu_thu_kwh
+                        )
                 """, (self.customer_id, ngay, chi_so, dien_tieu_thu))
                 
                 prev_chi_so = chi_so
@@ -230,6 +275,57 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
 
         except Exception as e:
             _LOGGER.error(f"Error saving daily data: {e}", exc_info=True)
+
+    async def _save_monthly_consumption_from_daily(self):
+        """Tổng hợp sản lượng từng tháng từ bảng ngày đã lưu.
+
+        API hóa đơn chỉ trả về hóa đơn CHƯA thanh toán, nên bảng monthly_bill
+        gần như rỗng với khách hàng không nợ. Gộp lại từ dữ liệu ngày (không
+        tốn thêm request) để sensor "Hóa đơn năm nay" có đủ các tháng.
+        Chỉ ghi sản lượng, giữ nguyên tiền điện của hóa đơn thật.
+        """
+        try:
+            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS monthly_bill (
+                    userevn TEXT,
+                    thang INTEGER,
+                    nam INTEGER,
+                    tien_dien REAL,
+                    san_luong_kwh REAL,
+                    PRIMARY KEY (userevn, thang, nam)
+                )
+            """)
+
+            # ngay lưu dạng dd-mm-yyyy
+            cursor.execute("""
+                SELECT CAST(substr(ngay, 4, 2) AS INTEGER) AS thang,
+                       CAST(substr(ngay, 7, 4) AS INTEGER) AS nam,
+                       ROUND(SUM(dien_tieu_thu_kwh), 2)
+                FROM daily_consumption
+                WHERE userevn = ? AND dien_tieu_thu_kwh IS NOT NULL
+                GROUP BY nam, thang
+            """, (self.customer_id,))
+
+            rows = cursor.fetchall()
+            for thang, nam, san_luong in rows:
+                cursor.execute("""
+                    INSERT INTO monthly_bill
+                    (userevn, thang, nam, tien_dien, san_luong_kwh)
+                    VALUES (?, ?, ?, NULL, ?)
+                    ON CONFLICT(userevn, thang, nam)
+                    DO UPDATE SET san_luong_kwh = excluded.san_luong_kwh
+                """, (self.customer_id, thang, nam, san_luong))
+
+            conn.commit()
+            conn.close()
+            _LOGGER.debug(f"Tổng hợp sản lượng {len(rows)} tháng cho {self.customer_id}")
+
+        except Exception as e:
+            _LOGGER.error(f"Error aggregating monthly consumption: {e}", exc_info=True)
 
     async def _save_monthly_data(self, data: list, month: int, year: int):
         """Save monthly bill data to database."""
@@ -302,8 +398,11 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error(f"Error saving monthly data: {e}", exc_info=True)
 
     async def _save_bill_data(self, data: list):
-        """Save bill data (tiền nợ) to database."""
-        if not data or not isinstance(data, list):
+        """Save bill data (tiền nợ) to database.
+
+        Danh sách rỗng = không còn hóa đơn chưa thanh toán, ghi tiền nợ 0.
+        """
+        if not isinstance(data, list):
             return
 
         try:
@@ -321,17 +420,18 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
                 )
             """)
 
+            tien_no = 0
             for bill in data:
                 if bill.get("TTRANG_TTOAN") == "CHUATT":
                     tien_no = self._parse_float(bill.get("TONG_TIEN", 0))
-                    ngay_cap_nhat = datetime.now().strftime("%d-%m-%Y")
-                    
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO tien_no_evn 
-                        (userevn, tien_no, ngay_cap_nhat)
-                        VALUES (?, ?, ?)
-                    """, (self.customer_id, tien_no, ngay_cap_nhat))
                     break
+
+            ngay_cap_nhat = datetime.now().strftime("%d-%m-%Y")
+            cursor.execute("""
+                INSERT OR REPLACE INTO tien_no_evn
+                (userevn, tien_no, ngay_cap_nhat)
+                VALUES (?, ?, ?)
+            """, (self.customer_id, tien_no, ngay_cap_nhat))
 
             conn.commit()
             conn.close()
@@ -494,7 +594,15 @@ class EVNDataUpdateCoordinator(DataUpdateCoordinator):
                 # Handle THOI_DIEM format: "24/01/2026 00:33" -> extract date part
                 if field in ["THOI_DIEM", "thoi_diem"] and ' ' in date_str:
                     date_str = date_str.split(' ')[0]
-                    
+
+                # SPC gộp nhiều ngày vào một bản ghi khi công tơ không chốt
+                # được từng ngày: "08/10/2025-09/10/2025" -> lấy ngày cuối.
+                # Không xử lý thì _parse_date trả về hôm nay và ghi đè dữ
+                # liệu thật của hôm nay.
+                if '/' in date_str and '-' in date_str:
+                    date_str = date_str.split('-')[-1].strip()
+
+
                 # Try to parse and format
                 try:
                     # Try dd/mm/yyyy (most common for NPC API)

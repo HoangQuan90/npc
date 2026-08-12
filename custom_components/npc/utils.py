@@ -423,15 +423,22 @@ def laylichcatdien(userevn):
 
 
 def lay_tien_no_evn(userevn):
-    """Lấy số tiền nợ EVN và ngày cập nhật mới nhất cho userevn từ bảng tien_no_evn."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT tien_no, ngay_cap_nhat FROM tien_no_evn WHERE userevn=? ORDER BY ngay_cap_nhat DESC LIMIT 1",
-        (userevn,)
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return chuyen_doi_so(row[0]), row[1]
+    """Lấy số tiền nợ EVN và ngày cập nhật mới nhất cho userevn từ bảng tien_no_evn.
+
+    Bảng chỉ được tạo sau lần cập nhật đầu tiên nên phải chịu được trường hợp
+    chưa có bảng, giống laylichcatdien.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT tien_no, ngay_cap_nhat FROM tien_no_evn WHERE userevn=? ORDER BY ngay_cap_nhat DESC LIMIT 1",
+            (userevn,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return chuyen_doi_so(row[0]), row[1]
+    except Exception as e:
+        _LOGGER.error(f"Error in lay_tien_no_evn: {e}")
     return None, None

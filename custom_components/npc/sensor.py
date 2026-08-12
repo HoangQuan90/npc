@@ -35,7 +35,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         "tieu_thu_ky_truoc_nua", "tien_dien_ky_truoc_nua",
         "tieu_thu_hom_nay", "tieu_thu_hom_qua", "tieu_thu_hom_kia",
         "chi_tiet_dien_tieu_thu_ky_nay", "tien_dien_san_luong_nam_nay",
-        "lich_cat_dien", "lan_cap_nhat_cuoi", "tien_no"
+        "lich_cat_dien", "lan_cap_nhat_cuoi", "tien_no",
+        "thong_tin_khach_hang"
     ]
     entities = []
     for sensor_type in SENSOR_TYPES:
@@ -64,6 +65,7 @@ VIETNAMESE_NAMES = {
     "lich_cat_dien": "Lịch cắt điện",
     "lan_cap_nhat_cuoi": "Update Last",
     "tien_no": "Tiền nợ",
+    "thong_tin_khach_hang": "Thông tin khách hàng",
 }
 
 
@@ -713,6 +715,17 @@ class EVNSensor(CoordinatorEntity, SensorEntity):
                 return last_update.isoformat()
             else:
                 return None
+        # Thông tin khách hàng lấy từ lần đăng nhập gần nhất
+        if self._sensor_type == "thong_tin_khach_hang":
+            api = getattr(self.coordinator, "api", None)
+            self._attributes = {
+                "Mã khách hàng": self._userevn,
+                "Địa chỉ": getattr(api, "dia_chi", None),
+                "Điện lực": getattr(api, "ma_dviqly", None),
+                "Số điện thoại": getattr(api, "dien_thoai", None),
+                "Khu vực": getattr(api, "region", None),
+            }
+            return getattr(api, "ten_khang", None) or self._userevn
         # Tiền nợ
         if self._sensor_type == "tien_no":
             from .utils import lay_tien_no_evn
@@ -742,7 +755,8 @@ class EVNSensor(CoordinatorEntity, SensorEntity):
             "chi_tiet_dien_tieu_thu_ky_nay": "mdi:calendar-month",
             "tien_dien_san_luong_nam_nay": "mdi:calendar-month",
             "tien_no": "mdi:cash-multiple",
-            "lich_cat_dien": "mdi:calendar-alert"
+            "lich_cat_dien": "mdi:calendar-alert",
+            "thong_tin_khach_hang": "mdi:account-box"
         }
         return ICON_MAPPING.get(self._sensor_type, None)
 

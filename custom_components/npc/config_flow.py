@@ -18,6 +18,7 @@ from .const import (
     REGION_CPC,
     REGION_SPC,
     REGION_HCMC,
+    CUSTOMER_ID_PREFIX_REGION,
 )
 from .npc_api import EVNAPI
 
@@ -125,8 +126,15 @@ Nhập username và password để đăng nhập vào hệ thống EVN.
             ngaydauky = int(user_input[CONF_NGAYDAUKY])
 
             # Validate customer ID format
+            expected_region = CUSTOMER_ID_PREFIX_REGION.get(customer_id[:2])
             if not (customer_id.startswith('P') or customer_id.startswith('S')) or len(customer_id) < 11:
                 errors[CONF_CUSTOMER_ID] = "invalid_format"
+            elif expected_region and expected_region != self._user_input[CONF_REGION]:
+                _LOGGER.error(
+                    f"Mã khách hàng {customer_id} thuộc khu vực {expected_region}, "
+                    f"nhưng đang chọn {self._user_input[CONF_REGION]}"
+                )
+                errors["base"] = "wrong_region"
             else:
                 # Test login and verify customer ID
                 try:

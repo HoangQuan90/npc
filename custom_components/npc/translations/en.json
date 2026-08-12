@@ -90,6 +90,7 @@
       "customer_not_found": "🔍 Customer code not found!\n\n❗ Possible reasons:\n• Incorrect customer code entered\n• EVN VN Addon error\n• EVN VN Addon still fetching data\n\n💬 Please check again or contact admin",
       "invalid_format": "❌ Invalid customer code format!\n\n✅ Correct format:\n• Must start with P or S\n• Must have at least 11 characters\n• Example: PE06800012345",
       "invalid_auth": "❌ Login failed!\n\n❗ Please check:\n• Username\n• Password\n• Network connection",
+      "wrong_region": "❌ Customer ID does not belong to the selected region!\n\n🔁 Go back and pick the region matching the first 2 characters of the ID:\n• **PD** → Ha Noi (HN)\n• **PE** → Ho Chi Minh City (HCMC)\n• **PA, PH, PM, PN** → North (NPC)\n• **PC, PP, PQ** → Central (CPC)\n• **PB, PK** → South (SPC)",
       "no_data": "⚠️ Could not retrieve data!\n\n❗ Possible reasons:\n• Incorrect customer ID\n• No data available in system\n• API connection error",
       "unknown": "❌ An unknown error occurred!\n\n💬 Please try again or check logs for details"
     }

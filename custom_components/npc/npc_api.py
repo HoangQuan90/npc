@@ -19,6 +19,10 @@ EVN_REGIONS = {
 # Common login URL
 LOGIN_URL = "https://cskh.evn.com.vn/cskh/v1/auth/login"
 
+# SPC có cổng đăng nhập riêng: tài khoản SPC không tồn tại trên cổng chung
+# cskh.evn.com.vn nên phải xác thực thẳng ở api.cskh.evnspc.vn
+SPC_LOGIN_URL = "https://api.cskh.evnspc.vn/api/user/authenticate"
+
 
 class EVNAPI:
     """EVN API Client"""
@@ -36,6 +40,9 @@ class EVNAPI:
         self.ma_dviqly: Optional[str] = None  # Lưu từ login response
         self.ma_ddo: Optional[str] = None  # Lưu từ login response (maKhang hoặc maHdong)
         self.ma_khang: Optional[str] = None  # Lưu từ login response
+        self.ten_khang: Optional[str] = None  # Tên khách hàng, từ login response
+        self.dien_thoai: Optional[str] = None  # Số điện thoại, từ login response
+        self.dia_chi: Optional[str] = None  # Địa chỉ, từ login response
         self.hcmc_session: Optional[str] = None  # Session cookie cho HCMC
 
         if not self.base_url:
@@ -93,9 +100,12 @@ class EVNAPI:
 
     async def login(self) -> bool:
         """Login to EVN and get access token."""
+        if self.region == "SPC":
+            return await self._login_spc()
+
         try:
             session = await self._get_session()
-            
+
             payload = {
                 "username": self.username,
                 "password": self.password,
@@ -132,6 +142,9 @@ class EVNAPI:
                 user_data = data["data"].get("data", {})
                 ma_kh_login = user_data.get("maKhang", "")
                 self.ma_khang = ma_kh_login
+                self.ten_khang = user_data.get("tenKhang")
+                self.dien_thoai = user_data.get("dthoai")
+                self.dia_chi = user_data.get("diaChi")
                 
                 # Với HN: không dùng maDviqly/maHdong từ login,
                 # sẽ dùng customer_id trực tiếp
@@ -185,6 +198,63 @@ class EVNAPI:
 
         except Exception as e:
             _LOGGER.error(f"Login error: {e}", exc_info=True)
+            return False
+
+    async def _login_spc(self) -> bool:
+        """Login to EVNSPC endpoint to get access token.
+
+        SPC không dùng cổng đăng nhập chung cskh.evn.com.vn. Endpoint riêng
+        trả về token cùng maKH/maDonVi của khách hàng.
+        """
+        try:
+            session = await self._get_session()
+
+            payload = {
+                "strUsername": self.username,
+                "strPassword": self.password,
+                "strDeviceID": self.customer_id,
+            }
+
+            headers = {
+                "accept": "application/json",
+                "content-type": "application/json",
+                "user-agent": "evnapp/59 CFNetwork/1240.0.4 Darwin/20.6.0",
+                "accept-language": "vi-vn",
+                "connection": "keep-alive",
+            }
+
+            async with session.post(
+                SPC_LOGIN_URL, json=payload, headers=headers, ssl=False
+            ) as resp:
+                if resp.status != 200:
+                    _LOGGER.error(f"SPC login failed with status {resp.status}")
+                    return False
+
+                data = await resp.json(content_type=None)
+
+                token = data.get("token") if isinstance(data, dict) else None
+                ma_kh_login = data.get("maKH", "") if isinstance(data, dict) else ""
+
+                # SPC trả về 200 với maKH rỗng khi sai tài khoản/mật khẩu
+                if not token or not ma_kh_login:
+                    _LOGGER.error(f"SPC login failed: {data}")
+                    return False
+
+                self.access_token = token
+                self.ma_khang = ma_kh_login
+                self.ma_dviqly = data.get("maDonVi") or ma_kh_login[:6]
+                self.ma_ddo = ma_kh_login
+                self.ten_khang = data.get("tenKH")
+                self.dien_thoai = data.get("dienThoai")
+
+                _LOGGER.info(
+                    f"Login successful for {self.customer_id}, "
+                    f"maDviqly={self.ma_dviqly}, maDdo={self.ma_ddo}"
+                )
+                return True
+
+        except Exception as e:
+            _LOGGER.error(f"SPC login error: {e}", exc_info=True)
             return False
 
     async def _login_hcmc_session(self) -> bool:
@@ -266,6 +336,9 @@ class EVNAPI:
                 # Lấy lại maKhang từ switch response (chỉ để tham khảo)
                 switch_user_data = data["data"].get("data", {})
                 self.ma_khang = switch_user_data.get("maKhang", "")
+                self.ten_khang = switch_user_data.get("tenKhang")
+                self.dien_thoai = switch_user_data.get("dthoai")
+                self.dia_chi = switch_user_data.get("diaChi")
                 
                 # Với HN: không lưu ma_dviqly/ma_ddo, sẽ dùng customer_id trực tiếp trong API calls
                 # Với NPC/CPC/SPC: dùng maKhang để extract
@@ -318,7 +391,10 @@ class EVNAPI:
                 converted_record["NGAY"] = record["strTime"]
             
             # Convert dGiaoBT -> CHISO_MOI and CHISO
-            if "dGiaoBT" in record:
+            # Bản ghi gộp nhiều ngày (strTime dạng "08/10/2025-09/10/2025")
+            # không có chỉ số chốt, dGiaoBT = 0: bỏ qua để không ghi đè
+            # chuỗi chỉ số bằng số 0.
+            if record.get("dGiaoBT"):
                 converted_record["CHISO_MOI"] = record["dGiaoBT"]
                 converted_record["CHISO"] = record["dGiaoBT"]
             
@@ -723,9 +799,13 @@ class EVNAPI:
                 month_start = datetime(year, month, 1)
                 _, last_day = monthrange(year, month)
                 month_end = datetime(year, month, last_day)
-                
-                # Gọi get_chisongay để lấy dữ liệu ngày
-                from_date = (month_start - timedelta(days=1)).strftime("%d/%m/%Y")
+
+                # Cần cả chỉ số ngày cuối tháng trước làm chỉ số đầu kỳ.
+                # SPC: get_chisongay đã tự lùi 1 ngày, HCMC thì chưa.
+                if self.region == "SPC":
+                    from_date = month_start.strftime("%d/%m/%Y")
+                else:
+                    from_date = (month_start - timedelta(days=1)).strftime("%d/%m/%Y")
                 to_date = month_end.strftime("%d/%m/%Y")
                 
                 daily_data = await self.get_chisongay(from_date, to_date)
@@ -770,17 +850,21 @@ class EVNAPI:
                     from_date_parsed = datetime.strptime(first_record.get("strTime", ""), "%d/%m/%Y") + timedelta(days=1)
                     to_date_parsed = datetime.strptime(last_record.get("strTime", ""), "%d/%m/%Y")
                 
-                # Trả về format tương tự như API chisothang
+                # Trả về đúng format của API chisothang chung: data là list
+                # bản ghi với các key CHISO_CU / CHISO_MOI / DIEN_TTHU,
+                # vì coordinator._save_monthly_data đọc theo format đó.
                 return {
-                    "data": {
-                        "Thang": month,
-                        "Nam": year,
-                        "ChiSoThang": chi_so_thang,
-                        "ChiSoDau": chi_so_cu,
-                        "ChiSoCuoi": chi_so_moi,
-                        "TuNgay": from_date_parsed.strftime("%d/%m/%Y"),
-                        "DenNgay": to_date_parsed.strftime("%d/%m/%Y"),
-                    }
+                    "data": [
+                        {
+                            "THANG": month,
+                            "NAM": year,
+                            "DIEN_TTHU": chi_so_thang,
+                            "CHISO_CU": chi_so_cu,
+                            "CHISO_MOI": chi_so_moi,
+                            "TU_NGAY": from_date_parsed.strftime("%d/%m/%Y"),
+                            "DEN_NGAY": to_date_parsed.strftime("%d/%m/%Y"),
+                        }
+                    ]
                 }
             else:
                 # Các region khác dùng endpoint chung
@@ -898,7 +982,10 @@ class EVNAPI:
             elif self.region == "SPC":
                 url = f"{self.base_url}/api/NghiepVu/TraCuuNoHoaDon"
                 params = {
-                    "strMaKH": self.ma_khang if self.ma_khang else self.customer_id,
+                    # Phải là mã khách hàng đã cấu hình, không phải mã của tài
+                    # khoản đăng nhập: một tài khoản SPC có thể gắn nhiều mã và
+                    # API phân quyền theo tham số này.
+                    "strMaKH": self.customer_id,
                 }
                 headers = {
                     "User-Agent": "evnapp/59 CFNetwork/1240.0.4 Darwin/20.6.0",
@@ -992,7 +1079,10 @@ class EVNAPI:
             if self.region == "SPC":
                 url = f"{self.base_url}/api/NghiepVu/TraCuuLichNgungGiamCungCapDien"
                 params = {
-                    "strMaKH": self.ma_khang if self.ma_khang else self.customer_id,
+                    # Phải là mã khách hàng đã cấu hình, không phải mã của tài
+                    # khoản đăng nhập: một tài khoản SPC có thể gắn nhiều mã và
+                    # API phân quyền theo tham số này.
+                    "strMaKH": self.customer_id,
                 }
                 headers = {
                     "User-Agent": "evnapp/59 CFNetwork/1240.0.4 Darwin/20.6.0",

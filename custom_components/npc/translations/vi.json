@@ -90,6 +90,7 @@
       "customer_not_found": "🔍 Mã khách hàng không tồn tại!\n\n❗ Lý do có thể:\n• Nhập sai mã khách hàng của tài khoản\n• Addon EVN VN chạy lỗi\n• Addon EVN VN chưa lấy xong dữ liệu\n\n💬 Vui lòng kiểm tra lại hoặc liên hệ admin",
       "invalid_format": "❌ Mã khách hàng không hợp lệ!\n\n✅ Định dạng đúng:\n• Bắt đầu bằng P hoặc S\n• Có ít nhất 11 ký tự\n• Ví dụ: PE06800012345",
       "invalid_auth": "❌ Đăng nhập thất bại!\n\n❗ Vui lòng kiểm tra lại:\n• Tên đăng nhập\n• Mật khẩu\n• Kết nối mạng",
+      "wrong_region": "❌ Mã khách hàng không thuộc khu vực đã chọn!\n\n🔁 Quay lại bước đầu và chọn đúng khu vực theo 2 ký tự đầu của mã:\n• **PD** → Hà Nội (HN)\n• **PE** → Hồ Chí Minh (HCMC)\n• **PA, PH, PM, PN** → Miền Bắc (NPC)\n• **PC, PP, PQ** → Miền Trung (CPC)\n• **PB, PK** → Miền Nam (SPC)",
       "no_data": "⚠️ Không thể lấy dữ liệu!\n\n❗ Có thể do:\n• Mã khách hàng không đúng\n• Chưa có dữ liệu trong hệ thống\n• Lỗi kết nối API",
       "unknown": "❌ Đã xảy ra lỗi không xác định!\n\n💬 Vui lòng thử lại hoặc kiểm tra logs để biết thêm chi tiết"
     }
