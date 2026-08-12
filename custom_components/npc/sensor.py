@@ -765,7 +765,7 @@ class EVNSensor(CoordinatorEntity, SensorEntity):
         return {
             "identifiers": {(DOMAIN, self._customer_id)},
             "name": f"EVN VN Device ({self._customer_id})",
-            "manufacturer": "Smarthome Black",
+            "manufacturer": "TriTue2011",
             "model": "EVN VN",
             "sw_version": "2026.1.25",
         }
