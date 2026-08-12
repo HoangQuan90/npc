@@ -1,6 +1,24 @@
 {
   "config": {
     "step": {
+      "reconfigure": {
+        "title": "🔧 Reconfigure account",
+        "data": {
+          "region": "📍 Power region",
+          "username": "👤 Username",
+          "password": "🔒 Password",
+          "customer_id": "🆔 Customer ID",
+          "ngaydauky": "📅 Billing Start Day"
+        },
+        "data_description": {
+          "region": "Pick by the first 2 chars: PD=HN, PE=HCMC, PA/PH/PM/PN=NPC, PC/PP/PQ=CPC, PB/PK=SPC",
+          "username": "Account for this code",
+          "password": "Enter the CORRECT password to fetch data",
+          "customer_id": "EVN customer ID",
+          "ngaydauky": "Billing cycle start day (1-28)"
+        },
+        "description": "### 🔧 Re-enter the account for this code\n\nThis code cannot fetch data with the current account. Enter the **correct password** (or change region/username) and submit to retry and update."
+      },
       "user": {
         "title": "⚡ Setup EVN Vietnam",
         "data": {
@@ -26,10 +44,16 @@
       "customer_id": {
         "title": "📋 Account Information",
         "data": {
+          "region": "📍 Power region",
+          "username": "👤 Username",
+          "password": "🔒 Password",
           "customer_id": "🆔 Customer ID",
           "ngaydauky": "📅 Billing Start Day"
         },
         "data_description": {
+          "region": "Pick by the first 2 chars of the code: PD=HN, PE=HCMC, PA/PH/PM/PN=NPC, PC/PP/PQ=CPC, PB/PK=SPC",
+          "username": "Account for this code (may differ per code)",
+          "password": "Password of this account",
           "customer_id": "Enter EVN customer ID (must start with P or S, minimum 11 characters)",
           "ngaydauky": "Select billing cycle start day (usually day 1-28)"
         },
@@ -83,6 +107,7 @@
       }
     },
     "abort": {
+      "reconfigure_successful": "✅ Account updated and data reloaded successfully!",
       "already_configured": "🔄 Customer code already configured!\n\n✅ **Customer code `{title}` already exists in system**\n\n🎯 **Your options:**\n• **Edit settings**: Go to *Configuration* → *Reset billing start day*\n• **Remove and recreate**: Delete old customer code before adding new one\n• **Use different code**: Enter another customer code\n\n💡 *Each customer code can only be configured once*"
     },
     "error": {

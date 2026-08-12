@@ -117,82 +117,51 @@ Nhập username và password để đăng nhập vào hệ thống EVN.
             }
         )
 
-    async def async_step_customer_id(self, user_input: dict[str, Any] | None = None):
-        """Handle customer ID and billing cycle step."""
-        errors = {}
+    def _account_schema(self, prefill: dict) -> vol.Schema:
+        """Form đầy đủ: khu vực + tài khoản + mật khẩu + mã + ngày đầu kỳ.
 
-        if user_input is not None:
-            customer_id = user_input[CONF_CUSTOMER_ID].strip().upper()
-            ngaydauky = int(user_input[CONF_NGAYDAUKY])
-
-            # Validate customer ID format
-            expected_region = CUSTOMER_ID_PREFIX_REGION.get(customer_id[:2])
-            if not (customer_id.startswith('P') or customer_id.startswith('S')) or len(customer_id) < 11:
-                errors[CONF_CUSTOMER_ID] = "invalid_format"
-            elif expected_region and expected_region != self._user_input[CONF_REGION]:
-                _LOGGER.error(
-                    f"Mã khách hàng {customer_id} thuộc khu vực {expected_region}, "
-                    f"nhưng đang chọn {self._user_input[CONF_REGION]}"
+        Dùng chung cho bước thêm mới và bước reconfigure, điền sẵn từ prefill.
+        """
+        return vol.Schema({
+            vol.Required(
+                CONF_REGION,
+                default=prefill.get(CONF_REGION, REGION_NPC)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=REGION_OPTIONS,
+                    mode=selector.SelectSelectorMode.DROPDOWN
                 )
-                errors["base"] = "wrong_region"
-            else:
-                # Test login and verify customer ID
-                try:
-                    api = EVNAPI(
-                        self.hass,
-                        self._user_input[CONF_REGION],
-                        self._user_input[CONF_USERNAME],
-                        self._user_input[CONF_PASSWORD],
-                        customer_id
-                    )
-
-                    if await api.login():
-                        # Verify we can get data
-                        from datetime import datetime, timedelta
-                        today = datetime.now()
-                        from_date = (today - timedelta(days=7)).strftime("%d/%m/%Y")
-                        to_date = today.strftime("%d/%m/%Y")
-                        
-                        test_data = await api.get_chisongay(from_date, to_date)
-                        if test_data and test_data.get("data"):
-                            # Success - create entry
-                            await api.close()
-                            
-                            await self.async_set_unique_id(customer_id)
-                            self._abort_if_unique_id_configured()
-
-                            return self.async_create_entry(
-                                title=customer_id,
-                                data={
-                                    CONF_REGION: self._user_input[CONF_REGION],
-                                    CONF_USERNAME: self._user_input[CONF_USERNAME],
-                                    CONF_PASSWORD: self._user_input[CONF_PASSWORD],
-                                    CONF_CUSTOMER_ID: customer_id,
-                                    CONF_NGAYDAUKY: ngaydauky,
-                                }
-                            )
-                        else:
-                            errors["base"] = "no_data"
-                            await api.close()
-                    else:
-                        errors["base"] = "invalid_auth"
-                        await api.close()
-                except Exception as e:
-                    _LOGGER.error(f"Error during verification: {e}", exc_info=True)
-                    errors["base"] = "unknown"
-                    try:
-                        await api.close()
-                    except:
-                        pass
-
-        schema = vol.Schema({
-            vol.Required(CONF_CUSTOMER_ID): selector.TextSelector(
+            ),
+            vol.Required(
+                CONF_USERNAME,
+                default=prefill.get(CONF_USERNAME, "")
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.TEXT,
+                    autocomplete="username"
+                )
+            ),
+            vol.Required(
+                CONF_PASSWORD,
+                default=prefill.get(CONF_PASSWORD, "")
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.PASSWORD
+                )
+            ),
+            vol.Required(
+                CONF_CUSTOMER_ID,
+                default=prefill.get(CONF_CUSTOMER_ID, "")
+            ): selector.TextSelector(
                 selector.TextSelectorConfig(
                     type=selector.TextSelectorType.TEXT,
                     autocomplete="customer_id"
                 )
             ),
-            vol.Required(CONF_NGAYDAUKY, default=1): selector.NumberSelector(
+            vol.Required(
+                CONF_NGAYDAUKY,
+                default=int(prefill.get(CONF_NGAYDAUKY, 1))
+            ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1,
                     max=31,
@@ -202,20 +171,158 @@ Nhập username và password để đăng nhập vào hệ thống EVN.
             ),
         })
 
+    async def _validate_account(self, region, username, password, customer_id):
+        """Đăng nhập và thử lấy dữ liệu. Trả None nếu OK, ngược lại mã lỗi.
+
+        Đây là chỗ tài khoản/mật khẩu vừa nhập được kiểm chứng thật: đăng nhập
+        rồi gọi get_chisongay. "no_data" nghĩa là đăng nhập được nhưng tài khoản
+        này không có quyền đọc mã đó — người dùng nhập mật khẩu đúng rồi thử lại.
+        """
+        expected_region = CUSTOMER_ID_PREFIX_REGION.get(customer_id[:2])
+        if not (customer_id.startswith('P') or customer_id.startswith('S')) or len(customer_id) < 11:
+            return "invalid_format"
+        if expected_region and expected_region != region:
+            _LOGGER.error(
+                f"Mã khách hàng {customer_id} thuộc khu vực {expected_region}, "
+                f"nhưng đang chọn {region}"
+            )
+            return "wrong_region"
+
+        api = EVNAPI(self.hass, region, username, password, customer_id)
+        try:
+            if not await api.login():
+                return "invalid_auth"
+            from datetime import datetime, timedelta
+            today = datetime.now()
+            from_date = (today - timedelta(days=7)).strftime("%d/%m/%Y")
+            to_date = today.strftime("%d/%m/%Y")
+            test_data = await api.get_chisongay(from_date, to_date)
+            if test_data and test_data.get("data"):
+                return None
+            return "no_data"
+        except Exception as e:
+            _LOGGER.error(f"Error during verification: {e}", exc_info=True)
+            return "unknown"
+        finally:
+            try:
+                await api.close()
+            except Exception:
+                pass
+
+    async def async_step_customer_id(self, user_input: dict[str, Any] | None = None):
+        """Handle customer ID and billing cycle step.
+
+        Bước cuối gồm đủ khu vực + tài khoản + mật khẩu + mã + ngày đầu kỳ,
+        điền sẵn từ các bước trước. Khi một mã lỗi vì cần tài khoản/khu vực
+        khác (ví dụ mã miền Nam phải dùng tài khoản app SPC riêng), người dùng
+        sửa ngay tại đây rồi thử lại, không phải làm lại từ đầu.
+        """
+        errors = {}
+
+        # Giá trị điền sẵn: ưu tiên lần nhập gần nhất, rồi tới các bước trước.
+        prefill = dict(self._user_input)
+        if user_input:
+            prefill.update(user_input)
+
+        if user_input is not None:
+            region = user_input[CONF_REGION]
+            username = user_input[CONF_USERNAME].strip()
+            password = user_input[CONF_PASSWORD]
+            customer_id = user_input[CONF_CUSTOMER_ID].strip().upper()
+            ngaydauky = int(user_input[CONF_NGAYDAUKY])
+
+            # Nhớ lại để lần thử tiếp theo điền sẵn
+            self._user_input.update({
+                CONF_REGION: region,
+                CONF_USERNAME: username,
+                CONF_PASSWORD: password,
+            })
+
+            err = await self._validate_account(region, username, password, customer_id)
+            if err == "invalid_format":
+                errors[CONF_CUSTOMER_ID] = err
+            elif err:
+                errors["base"] = err
+            else:
+                await self.async_set_unique_id(customer_id)
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=customer_id,
+                    data={
+                        CONF_REGION: region,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_CUSTOMER_ID: customer_id,
+                        CONF_NGAYDAUKY: ngaydauky,
+                    }
+                )
+
         return self.async_show_form(
             step_id="customer_id",
-            data_schema=schema,
+            data_schema=self._account_schema(prefill),
             errors=errors,
             description_placeholders={
-                "info": f"""
+                "info": """
 ### 📋 Thông tin tài khoản
 
-Nhập mã khách hàng và ngày đầu kỳ thanh toán.
-
-**Khu vực**: {self._user_input.get(CONF_REGION, 'N/A')}
-**Username**: {self._user_input.get(CONF_USERNAME, 'N/A')}
+Mỗi mã khách hàng là một lần thêm riêng và có thể dùng **tài khoản riêng**.
+Nếu một mã báo lỗi vì cần tài khoản hoặc khu vực khác, sửa ngay các ô bên
+dưới rồi bấm gửi lại — không cần làm lại từ đầu.
 
 **Ngày đầu kỳ**: Ngày bắt đầu chu kỳ thanh toán hàng tháng (1-31)
+                """
+            }
+        )
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        """Cấu hình lại một entry đã có mà không cần xóa.
+
+        Đúng nhu cầu: một mã đã thêm nhưng không ra dữ liệu, mở reconfigure để
+        nhập lại mật khẩu (hoặc đổi khu vực/tài khoản) đúng, thử lại, cập nhật
+        tại chỗ. Mở từ menu ⋮ của entry → Cấu hình lại.
+        """
+        errors = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        prefill = {**entry.data, **entry.options}
+        if user_input:
+            prefill.update(user_input)
+
+        if user_input is not None:
+            region = user_input[CONF_REGION]
+            username = user_input[CONF_USERNAME].strip()
+            password = user_input[CONF_PASSWORD]
+            customer_id = user_input[CONF_CUSTOMER_ID].strip().upper()
+            ngaydauky = int(user_input[CONF_NGAYDAUKY])
+
+            err = await self._validate_account(region, username, password, customer_id)
+            if err == "invalid_format":
+                errors[CONF_CUSTOMER_ID] = err
+            elif err:
+                errors["base"] = err
+            else:
+                self.hass.config_entries.async_update_entry(
+                    entry,
+                    data={
+                        CONF_REGION: region,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_CUSTOMER_ID: customer_id,
+                        CONF_NGAYDAUKY: ngaydauky,
+                    },
+                )
+                await self.hass.config_entries.async_reload(entry.entry_id)
+                return self.async_abort(reason="reconfigure_successful")
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self._account_schema(prefill),
+            errors=errors,
+            description_placeholders={
+                "info": """
+### 🔧 Nhập lại tài khoản cho mã này
+
+Mã này chưa lấy được dữ liệu với tài khoản hiện tại. Nhập **mật khẩu đúng**
+(hoặc đổi khu vực/tên đăng nhập) rồi bấm gửi để thử lại và cập nhật.
                 """
             }
         )

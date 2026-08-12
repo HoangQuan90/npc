@@ -1,6 +1,24 @@
 {
   "config": {
     "step": {
+      "reconfigure": {
+        "title": "🔧 Cấu hình lại tài khoản",
+        "data": {
+          "region": "📍 Khu vực điện lực",
+          "username": "👤 Tên đăng nhập",
+          "password": "🔒 Mật khẩu",
+          "customer_id": "🆔 Mã khách hàng",
+          "ngaydauky": "📅 Ngày đầu kỳ hóa đơn"
+        },
+        "data_description": {
+          "region": "Chọn theo 2 ký tự đầu của mã: PD=HN, PE=HCMC, PA/PH/PM/PN=NPC, PC/PP/PQ=CPC, PB/PK=SPC",
+          "username": "Tài khoản của mã này",
+          "password": "Nhập mật khẩu ĐÚNG để lấy được dữ liệu",
+          "customer_id": "Mã khách hàng EVN",
+          "ngaydauky": "Ngày bắt đầu chu kỳ thanh toán (1-28)"
+        },
+        "description": "### 🔧 Nhập lại tài khoản cho mã này\n\nMã này chưa lấy được dữ liệu với tài khoản hiện tại. Nhập **mật khẩu đúng** (hoặc đổi khu vực/tên đăng nhập) rồi bấm gửi để thử lại và cập nhật."
+      },
       "user": {
         "title": "⚡ Thiết lập EVN Việt Nam",
         "data": {
@@ -26,10 +44,16 @@
       "customer_id": {
         "title": "📋 Thông tin tài khoản",
         "data": {
+          "region": "📍 Khu vực điện lực",
+          "username": "👤 Tên đăng nhập",
+          "password": "🔒 Mật khẩu",
           "customer_id": "🆔 Mã khách hàng",
           "ngaydauky": "📅 Ngày đầu kỳ hóa đơn"
         },
         "data_description": {
+          "region": "Chọn theo 2 ký tự đầu của mã: PD=HN, PE=HCMC, PA/PH/PM/PN=NPC, PC/PP/PQ=CPC, PB/PK=SPC",
+          "username": "Tài khoản của mã này (có thể khác mã khác)",
+          "password": "Mật khẩu của tài khoản này",
           "customer_id": "Nhập mã khách hàng EVN (bắt đầu bằng P hoặc S, tối thiểu 11 ký tự)",
           "ngaydauky": "Chọn ngày bắt đầu chu kỳ thanh toán (thường là ngày 1-28)"
         },
@@ -83,6 +107,7 @@
       }
     },
     "abort": {
+      "reconfigure_successful": "✅ Đã cập nhật tài khoản và tải lại dữ liệu thành công!",
       "already_configured": "🔄 Mã khách hàng đã được thiết lập!\n\n✅ **Mã khách hàng `{title}` đã tồn tại trong hệ thống**\n\n🎯 **Các lựa chọn của bạn:**\n• **Sửa cài đặt**: Vào *Cấu hình* → *Thiết lập lại ngày đầu kỳ*\n• **Xóa và tạo lại**: Xóa mã khách hàng cũ trước khi thêm mới\n• **Sử dụng mã khác**: Nhập mã khách hàng khác\n\n💡 *Mỗi mã khách hàng chỉ có thể được cấu hình một lần*"
     },
     "error": {
