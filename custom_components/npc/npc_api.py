@@ -1124,7 +1124,10 @@ class EVNAPI:
                         return {"data": converted_data}
                     return data
             else:
-                # Các region khác dùng endpoint chung
+                # Các region khác dùng endpoint chung.
+                # Một số máy chủ EVN/NPC hiện không còn công khai endpoint này
+                # và trả HTTP 404. Khi đó chỉ bỏ qua lịch ngừng cấp điện, không
+                # làm hỏng toàn bộ integration hoặc các dữ liệu khác.
                 url = f"{self.base_url}/api/evn/tracuu/ngungcapdien"
 
                 payload = {
@@ -1144,8 +1147,19 @@ class EVNAPI:
                         if await self.login():
                             headers["authorization"] = f"Bearer {self.access_token}"
                             async with session.post(url, json=payload, headers=headers, ssl=False) as retry_resp:
+                                if retry_resp.status == 404:
+                                    _LOGGER.debug(
+                                        "get_ngungcapdien: endpoint không khả dụng sau khi đăng nhập lại "
+                                        "cho region %s (HTTP 404), bỏ qua dữ liệu lịch ngừng cấp điện.",
+                                        self.region,
+                                    )
+                                    return {"data": []}
                                 if retry_resp.status != 200:
-                                    _LOGGER.error(f"get_ngungcapdien failed with status {retry_resp.status}")
+                                    error_text = await retry_resp.text()
+                                    _LOGGER.error(
+                                        f"get_ngungcapdien failed with status {retry_resp.status}, "
+                                        f"response: {error_text[:500]}"
+                                    )
                                     return None
                                 data = await retry_resp.json()
                                 # Chuyển đổi format cho CPC
@@ -1156,8 +1170,20 @@ class EVNAPI:
                                 return data
                         return None
 
+                    if resp.status == 404:
+                        _LOGGER.debug(
+                            "get_ngungcapdien: endpoint không khả dụng cho region %s "
+                            "(HTTP 404), bỏ qua dữ liệu lịch ngừng cấp điện.",
+                            self.region,
+                        )
+                        return {"data": []}
+
                     if resp.status != 200:
-                        _LOGGER.error(f"get_ngungcapdien failed with status {resp.status}")
+                        error_text = await resp.text()
+                        _LOGGER.error(
+                            f"get_ngungcapdien failed with status {resp.status}, "
+                            f"response: {error_text[:500]}"
+                        )
                         return None
 
                     data = await resp.json()
