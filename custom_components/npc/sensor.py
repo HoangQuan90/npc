@@ -795,7 +795,7 @@ class EVNSensor(CoordinatorEntity, SensorEntity):
             "name": f"EVN VN Device ({self._customer_id})",
             "manufacturer": "HoangQuan",
             "model": "EVN VN",
-            "sw_version": "2026.4.7",
+            "sw_version": "2026.4.10",
         }
 
     @property
