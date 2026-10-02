@@ -367,10 +367,17 @@ class DataManager {
 
                 const month = parseInt(item.Tháng, 10);
                 const key = `${year}-${month}`;
-                const cost = typeof item["Tiền Điện"] === 'number'
-                    ? item["Tiền Điện"]
-                    : parseFloat(item["Tiền Điện"]) || 0;
-                costMap.set(key, cost);
+                
+                const rawCost = item["Tiền Điện"];
+                const cost = typeof rawCost === 'number'
+                    ? rawCost
+                    : parseFloat(rawCost);
+                // HCMC: API có thể không trả tiền điện cho tháng đã thanh toán.
+                // Khi tiền = 0/NULL, phải để getMonthlyAggregation()
+                // tính lại từ sản lượng bằng tinhTienDien().
+                if (Number.isFinite(cost) && cost > 0) {
+                    costMap.set(key, cost);
+                }
             });
         }
 
